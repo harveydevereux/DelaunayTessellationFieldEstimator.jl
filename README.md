@@ -27,7 +27,7 @@ attribute).
 - Nice and easy plotting + movie making :)
 - 3D, would need [VornoiDelaunay.jl](https://github.com/JuliaGeometry/VoronoiDelaunay.jl) updated.
 
-### Example of what this does
+### Example of what this will do
 
 This is a video from some experimental data I am working with (currently done in python, soon to be
 done in Julia!)
