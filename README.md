@@ -32,4 +32,4 @@ attribute).
 This is a video from some experimental data I am working with (currently done in python, soon to be
 done in Julia!)
 
-![beetles-density](/resources/density and points.gif)
+![beetles-density](https://github.com/harveydevereux/DelaunayTessellationFieldEstimator.jl/blob/master/resources/density%20and%20points.gif)
