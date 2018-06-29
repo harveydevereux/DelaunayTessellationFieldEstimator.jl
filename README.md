@@ -29,4 +29,7 @@ attribute).
 
 ### Example of what this does
 
-This is a video from some experimental data I am working with 
+This is a video from some experimental data I am working with (currently done in python, soon to be
+done in Julia!)
+
+![beetles-density](/resources/density and points.gif)
