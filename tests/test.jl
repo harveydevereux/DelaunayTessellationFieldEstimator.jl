@@ -18,3 +18,10 @@ A = ContiguousVoronoiCellArea(t)
 
 # yet to get a triangle counter
 (A*GeomToDataAreaScalingFactor(C))
+
+u=UniquePoints(t)
+DelaunayVertexDensity(tess,P[1])
+
+length(u)/(A*GeomToDataAreaScalingFactor(C))
+
+DelaunayVertexDensity(tess,C)

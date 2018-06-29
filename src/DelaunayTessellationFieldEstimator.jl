@@ -19,7 +19,7 @@ module DelaunayTessellationFieldEstimator
 # TODO Gif visualisation
 
 using VoronoiDelaunay
-import VoronoiDelaunay: delaunayedges 
+import VoronoiDelaunay: delaunayedges
 using GeometricalPredicates
 
 export
@@ -127,6 +127,52 @@ function ContiguousVoronoiCellArea{T <: VoronoiDelaunay.DelaunayTriangle}(Triang
         Area+=GeometricalPredicates.area(triangle)
     end
     return Area
+end
+
+"""Finds the set of unique points within a contigous
+   Voronoi cell
+
+   returns the array of unique points
+"""
+function UniquePoints{T <: VoronoiDelaunay.DelaunayTriangle}(Triangles::Array{T,1})
+    Uniques = []
+    for triangle in Triangles
+        for v in [geta(triangle),getb(triangle),getc(triangle)]
+            if !(v in Uniques)
+                push!(Uniques,v)
+            end
+        end
+    end
+    return Uniques
+end
+
+"""Finds the density in the geometry space (no scaling)
+   for a single Delaunay vertex point
+"""
+function DelaunayVertexGeometryDensity{T <: VoronoiDelaunay.DelaunayTessellation2D,
+                                       P <: GeometricalPredicates.Point2D}(tess::T,point::P,mass::Float64=1.0)
+    Triangles = FindTriangles(tess,point)
+    A = ContiguousVoronoiCellArea(Triangles)
+    ρ = mass*length(UniquePoints(Triangles))/A
+    return ρ
+end
+
+"""Wraps around DelaunayVertexGeometryDensity to calculate
+   the density in data space for every delaunay vertex point
+
+   Masses can be set to some field value other than mass. The
+   default is a uniform unit mass.
+
+   Returns an array of densities scaled to the data space
+"""
+function DelaunayVertexDensity{T <: VoronoiDelaunay.DelaunayTessellation2D}(tess::T,C::Coordinates,Masses=ones(length(C.GeometryCoordinates)))
+    G = C.GeometryCoordinates
+    ρ = zeros(size(G,1))
+    for i in 1:size(G,1)
+        P = Point2D(G[i,1],G[i,2])
+        ρ[i] = DelaunayVertexGeometryDensity(tess,P,Masses[i])
+    end
+    return ρ./GeomToDataAreaScalingFactor(C)
 end
 
 end # module DelaunayTessellationFieldEstimator
