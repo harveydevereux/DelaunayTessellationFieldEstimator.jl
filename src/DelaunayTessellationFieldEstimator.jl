@@ -12,8 +12,6 @@ module DelaunayTessellationFieldEstimator
 
 # still very much a work in progress!
 
-# TODO triangle counter and density
-# TODO Interpolation for inbetween points
 # TODO Wrap it all in the DTFEMap function
 # TODO Parallel support?
 # TODO Gif visualisation
@@ -92,13 +90,35 @@ end
    no return necessary
 """
 # TODO same function but with the coordinates object?
-function BuildDelaunay!{T <: VoronoiDelaunay.DelaunayTessellation2D,
-                       A <: Array{<: Real,2}}(Tess::T,Coords::A)
+function BuildDelaunay!{A <: Array{<: Real,2}}(Coords::A)
     # doesnt't seem to exist
     # sizehint(tess,size(Coords,1))
+    # This because if you try to push
+    # to an old tess the function hangs
+    # in an infinite loop
+    # there is an issue for this in
+    # VoronoiDelaunay.jl
+    Tess = DelaunayTessellation()
     Points = Point2D[Point(Coords[i,1],Coords[i,2]) for i in 1:size(Coords,1)]
     push!(Tess, Points)
-    return Points
+    return Tess,Points
+end
+
+"""Usefull for quikcly getting th triangles vertices
+all at once, returns a T <: Point2D
+"""
+function UnpackVertices{T <: VoronoiDelaunay.DelaunayTriangle}(Triangle::T)
+    return geta(Triangle), getb(Triangle), getc(Triangle)
+end
+
+"""Usefull for quikcly getting th triangles vertices
+all at once, returns a T <: Array
+"""
+function UnpackVerticesAsArray{T <: VoronoiDelaunay.DelaunayTriangle}(Triangle::T)
+    a = [getx(geta(Triangle)),gety(geta(Triangle))]
+    b = [getx(getb(Triangle)),gety(getb(Triangle))]
+    c = [getx(getc(Triangle)),gety(getc(Triangle))]
+    return a,b,c
 end
 
 """Finds all the delaunay triangles with the common vertex of \'point\'
@@ -108,7 +128,8 @@ function FindTriangles{T <: VoronoiDelaunay.DelaunayTessellation2D,
                        P <: GeometricalPredicates.Point2D}(tess::T,point::P)
     Triangles = Array{VoronoiDelaunay.DelaunayTriangle,1}()
     for triangle in tess
-        if point == triangle._a || point == triangle._b || point == triangle._c
+        a, b, c = UnpackVertices(triangle)
+        if point == a || point == b || point == c
             push!(Triangles,triangle)
         end
     end
@@ -137,7 +158,7 @@ end
 function UniquePoints{T <: VoronoiDelaunay.DelaunayTriangle}(Triangles::Array{T,1})
     Uniques = []
     for triangle in Triangles
-        for v in [geta(triangle),getb(triangle),getc(triangle)]
+        for v in UnpackVertices(triangle)
             if !(v in Uniques)
                 push!(Uniques,v)
             end
@@ -173,6 +194,121 @@ function DelaunayVertexDensity{T <: VoronoiDelaunay.DelaunayTessellation2D}(tess
         ρ[i] = DelaunayVertexGeometryDensity(tess,P,Masses[i])
     end
     return ρ./GeomToDataAreaScalingFactor(C)
+end
+
+"""returns an array with the x and y coordinates
+of a T <: Point2D
+"""
+function Point2DToArray{T<:GeometricalPredicates.Point2D}(a::T)
+    return [getx(a),gety(a)]
+end
+
+"""Creates a lattice of points spaced by step
+units, just like pythons meshgrid I believe
+
+returns the grid and optionally a vectorised
+form of this (useful for nearest neighbours)
+"""
+function Grid(xₗ,xᵤ,yₗ,yᵤ,step,with_vectorised=false)
+    x,y = meshgrid(xₗ:step:xᵤ,yₗ:step:yᵤ)
+    g = zeros(size(x[:],1),size(y[:],1),2)
+    for i in 1:size(x[:],1)
+        for j in 1:size(y[:],1)
+            g[i,j,1] = x[:][i]
+            g[i,j,2] = y[:][j]
+        end
+    end
+    if (with_vectorised)
+        return [x[:] y[:]], g
+    else
+        return g
+    end
+end
+
+"""A search to find points within a grid
+
+Could not find a working function to
+determine if any A[i,j,:] .== [a,b] easily
+always get bounds error
+
+returns [-1,-1] if a is not in the grid
+"""
+function WhereInGrid(grid, a)
+    ind = [-1,-1]
+    for i in 1:size(grid,1)
+        for j in 1:size(grid,2)
+            if a == grid[i,j,:] || a == grid[i,j,:]'
+                ind = [i,j]
+                return ind
+            end
+        end
+    end
+    return ind
+end
+
+"""The main function for the DTFE calculation
+currently buggy
+"""
+function DTFEMap{T <: VoronoiDelaunay.DelaunayTessellation2D}(tess::T,C::Coordinates,Masses=ones(size(C.DataCoordinates,1)),step=0.1)
+    vec,grid = Grid(C.GeomLims[1,:]...,C.GeomLims[2,:]...,step,true)
+    density_map = cat(3,grid,zeros(size(grid,1),size(grid,1)))
+    for triangle in tess
+        a, b, c = UnpackVertices(triangle)
+        # choose base vertex by random choice?
+        # Doesn't specify in the paper
+        p = rand(1:3)
+        if p == 1
+            r = [a,b,c]
+        elseif p == 2
+            r = [b,a,c]
+        elseif p == 3
+            r = [c,a,b]
+        end
+        # to begin 2D (voronoi is 2d only)
+        # constant field gradient estimate
+        # from the equation, where the rᵢ are the D+1
+        # delaunay vertices of the D-dimensional
+        # tetrahedron
+        # ∇ρ⋅(rᵢ-r₀) = ρ(rᵢ)-ρ(r₀)
+        ∇ρ = zeros(2)
+        ρ₀ = DelaunayVertexGeometryDensity(tess,r[1])
+        for i in 1:size(∇ρ,1)
+            ∇ρ[i] = DelaunayVertexGeometryDensity(tess,r[i+1])-ρ₀
+            diff = [getx(r[i+1])-getx(r[1]), gety(r[i+1]),gety(r[1])]
+            ∇ρ[i] = ∇ρ[i]/(diff)[i]
+        end
+        for i in 1:size(grid,1)
+            for j in 1:size(grid,2)
+                if GeometricalPredicates.intriangle(triangle,Point(grid[i,j,1:2]...))>=0
+                    # vetices will be visited more than once
+                    # take an average
+                    if (density_map[i,j,3] != 0)
+                        density_map[i,j,3] = (density_map[i,j,3] + ρ₀+∇ρ⋅(grid[i,j]-[getx(r[1]),gety(r[1])]))/2
+                    else
+                        density_map[i,j,3] = ρ₀+∇ρ⋅(grid[i,j]-[getx(r[1]),gety(r[1])])
+                    end
+                end
+            end
+        end
+        vertices = zeros(size(r,1),2)
+        for i in 1:size(r,1)
+            vertices[i,:] = Point2DToArray(r[i])
+        end
+        idx = knn(KDTree(vec'),vertices',1)
+        for i in 1:size(idx[1],1)
+            j = WhereInGrid(grid,vec[idx[1][i],:])
+            if j != [-1,-1]
+                density_map[j...,3] = DelaunayVertexGeometryDensity(tess,r[i])
+            end
+        end
+    end
+    return density_map
+        # Samples = SampleFromTriangle(triangle,n_samples)
+        # ̂ρ = zeros(size(Samples,1))
+        # for i in 1:size(Samples,1)
+        #     # interpolate
+        #     ̂ρ[i] = ρ₀+∇ρ⋅(Samples[i,:]-r[1])
+        # end
 end
 
 end # module DelaunayTessellationFieldEstimator
