@@ -27,6 +27,4 @@ attribute).
 
 ### Example of what this does
 
-This is a video from some experimental data I am working with
-
-![beetles-density](https://github.com/harveydevereux/DelaunayTessellationFieldEstimator.jl/blob/master/resources/density%20and%20points.gif)
+[Notebook](https://github.com/harveydevereux/DelaunayTessellationFieldEstimator.jl/blob/master/src/Example.ipynb)
