@@ -22,14 +22,11 @@ attribute).
 
 ### TODO 
 
-- Finish of the density algorithm
-- Provide simple interface for different fields (lacking in the python)
 - Nice and easy plotting + movie making :)
 - 3D, would need [VoronoiDelaunay.jl](https://github.com/JuliaGeometry/VoronoiDelaunay.jl) updated.
 
-### Example of what this will do (python placeholder)
+### Example of what this does
 
-This is a video from some experimental data I am working with (currently done in python, soon to be
-done in Julia!)
+This is a video from some experimental data I am working with
 
 ![beetles-density](https://github.com/harveydevereux/DelaunayTessellationFieldEstimator.jl/blob/master/resources/density%20and%20points.gif)
