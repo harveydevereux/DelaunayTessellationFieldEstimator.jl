@@ -10,20 +10,29 @@ module DelaunayTessellationFieldEstimator
 # university wesite https://warwick.ac.uk/fac/sci/mathsys/people/students/2017intake/devereux/
 # personal website https://harveydevereux.github.io/
 
-# still very much a work in progress!
+# Works now but is slower than python (possibly due to pyimport overhead?)
 
-# TODO Wrap it all in the DTFEMap function
-# TODO Parallel support?
+# TODO See if GridInterpolations.jl SimplexGrid is faster than Py-importing
+# TODO 3D -> N-D
 # TODO Gif visualisation
 
 using VoronoiDelaunay
 import VoronoiDelaunay: delaunayedges
 using GeometricalPredicates
+using NearestNeighbors
+import NearestNeighbors: knn, KDTree
+
+# for the simplex based interpolation
+using PyCall
+@pyimport scipy.interpolate as si
 
 export
+DTFE,
 Coordinates, GeomToDataAreaScalingFactor, BuildDelaunay!, FindTriangles,
 ContiguousVoronoiCellArea, DelaunayTessellation2D, DelaunayTessellation,
-Point,Point2D,getplotxyd,delaunayedges
+Point, Point2D, getplotxyd, delaunayedges, UniquePoints, GeomToDataAreaScalingFactor,
+DelaunayVertexDensity, DelaunayVertexGeometryDensity, Point2DToArray, DTFEMap,
+Grid, meshgrid
 
 const min_lim = VoronoiDelaunay.min_coord
 const max_lim = VoronoiDelaunay.max_coord
@@ -68,17 +77,20 @@ end
 """Returns the scaling factor required to calculate the area in the original
    point space.
 
+   Here M,m and the new min and max (assumed the same for all dimensions)
+   and min,max are the dimensions maximum and minimum.
+
    If the scaling is x* = [(x-min)/(max-min)](M-m)+m by writing
    out (a₁-b₁)(a₂-b₂) in the form of x* you\'ll find
    (a₁-b₁)(a₂-b₂)*SF⁻¹
    where SF  = ∏ᵢ(M-m)/(maxᵢ-minᵢ)
 """
 function GeomToDataAreaScalingFactor(C::Coordinates)
-    prod = 0
+    prod = 1
     D = C.DataLims
     G = C.GeomLims
     for d in 1:size(D,1)
-        prod+=((maximum(D[d,:])-minimum(D[d,:]))/(maximum(G[d,:])-minimum(G[d,:])))^2
+        prod *= (maximum(D[d,:])-minimum(D[d,:]))/(maximum(G[d,:])-minimum(G[d,:]))
     end
     return prod
 end
@@ -196,119 +208,19 @@ function DelaunayVertexDensity{T <: VoronoiDelaunay.DelaunayTessellation2D}(tess
     return ρ./GeomToDataAreaScalingFactor(C)
 end
 
-"""returns an array with the x and y coordinates
-of a T <: Point2D
+meshgrid(x,y) = (repmat(x',length(y),1),repmat(y,1,length(x)))
+
+"""Computes the interpolated DTFE grid from the given points
+   with resolution given by Size
 """
-function Point2DToArray{T<:GeometricalPredicates.Point2D}(a::T)
-    return [getx(a),gety(a)]
-end
+function DTFE(Points,Size=500)
+    C = Coordinates(Points)
+    tess,P = BuildDelaunay!(C.GeometryCoordinates)
+    x,y = meshgrid(linspace(C.DataLims[1,:]...,Size),linspace(C.DataLims[2,:]...,Size))
 
-"""Creates a lattice of points spaced by step
-units, just like pythons meshgrid I believe
-
-returns the grid and optionally a vectorised
-form of this (useful for nearest neighbours)
-"""
-function Grid(xₗ,xᵤ,yₗ,yᵤ,step,with_vectorised=false)
-    x,y = meshgrid(xₗ:step:xᵤ,yₗ:step:yᵤ)
-    g = zeros(size(x[:],1),size(y[:],1),2)
-    for i in 1:size(x[:],1)
-        for j in 1:size(y[:],1)
-            g[i,j,1] = x[:][i]
-            g[i,j,2] = y[:][j]
-        end
-    end
-    if (with_vectorised)
-        return [x[:] y[:]], g
-    else
-        return g
-    end
-end
-
-"""A search to find points within a grid
-
-Could not find a working function to
-determine if any A[i,j,:] .== [a,b] easily
-always get bounds error
-
-returns [-1,-1] if a is not in the grid
-"""
-function WhereInGrid(grid, a)
-    ind = [-1,-1]
-    for i in 1:size(grid,1)
-        for j in 1:size(grid,2)
-            if a == grid[i,j,:] || a == grid[i,j,:]'
-                ind = [i,j]
-                return ind
-            end
-        end
-    end
-    return ind
-end
-
-"""The main function for the DTFE calculation
-currently buggy
-"""
-function DTFEMap{T <: VoronoiDelaunay.DelaunayTessellation2D}(tess::T,C::Coordinates,Masses=ones(size(C.DataCoordinates,1)),step=0.1)
-    vec,grid = Grid(C.GeomLims[1,:]...,C.GeomLims[2,:]...,step,true)
-    density_map = cat(3,grid,zeros(size(grid,1),size(grid,1)))
-    for triangle in tess
-        a, b, c = UnpackVertices(triangle)
-        # choose base vertex by random choice?
-        # Doesn't specify in the paper
-        p = rand(1:3)
-        if p == 1
-            r = [a,b,c]
-        elseif p == 2
-            r = [b,a,c]
-        elseif p == 3
-            r = [c,a,b]
-        end
-        # to begin 2D (voronoi is 2d only)
-        # constant field gradient estimate
-        # from the equation, where the rᵢ are the D+1
-        # delaunay vertices of the D-dimensional
-        # tetrahedron
-        # ∇ρ⋅(rᵢ-r₀) = ρ(rᵢ)-ρ(r₀)
-        ∇ρ = zeros(2)
-        ρ₀ = DelaunayVertexGeometryDensity(tess,r[1])
-        for i in 1:size(∇ρ,1)
-            ∇ρ[i] = DelaunayVertexGeometryDensity(tess,r[i+1])-ρ₀
-            diff = [getx(r[i+1])-getx(r[1]), gety(r[i+1]),gety(r[1])]
-            ∇ρ[i] = ∇ρ[i]/(diff)[i]
-        end
-        for i in 1:size(grid,1)
-            for j in 1:size(grid,2)
-                if GeometricalPredicates.intriangle(triangle,Point(grid[i,j,1:2]...))>=0
-                    # vetices will be visited more than once
-                    # take an average
-                    if (density_map[i,j,3] != 0)
-                        density_map[i,j,3] = (density_map[i,j,3] + ρ₀+∇ρ⋅(grid[i,j]-[getx(r[1]),gety(r[1])]))/2
-                    else
-                        density_map[i,j,3] = ρ₀+∇ρ⋅(grid[i,j]-[getx(r[1]),gety(r[1])])
-                    end
-                end
-            end
-        end
-        vertices = zeros(size(r,1),2)
-        for i in 1:size(r,1)
-            vertices[i,:] = Point2DToArray(r[i])
-        end
-        idx = knn(KDTree(vec'),vertices',1)
-        for i in 1:size(idx[1],1)
-            j = WhereInGrid(grid,vec[idx[1][i],:])
-            if j != [-1,-1]
-                density_map[j...,3] = DelaunayVertexGeometryDensity(tess,r[i])
-            end
-        end
-    end
-    return density_map
-        # Samples = SampleFromTriangle(triangle,n_samples)
-        # ̂ρ = zeros(size(Samples,1))
-        # for i in 1:size(Samples,1)
-        #     # interpolate
-        #     ̂ρ[i] = ρ₀+∇ρ⋅(Samples[i,:]-r[1])
-        # end
+    D = DelaunayTessellationFieldEstimator.DelaunayVertexDensity(tess,C)
+    grid = si.griddata(C.DataCoordinates,D,(x,y),method="linear",fill_value=0)
+    return grid
 end
 
 end # module DelaunayTessellationFieldEstimator
