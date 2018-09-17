@@ -27,4 +27,4 @@ attribute).
 
 ### Example of what this does
 
-[Notebook](https://github.com/harveydevereux/DelaunayTessellationFieldEstimator.jl/blob/master/src/Example.ipynb)
+[Notebook](https://github.com/harveydevereux/DelaunayTessellationFieldEstimator.jl/blob/master/resources/Example.ipynb.tar.gz)
