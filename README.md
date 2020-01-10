@@ -27,7 +27,7 @@ attribute).
 
 ### Example of what this does
 
-#### A visualisation for a density field approximation on roughly 200 beetles
+#### A visualisation for a density field approximation
 
 [Notebook](https://github.com/harveydevereux/DelaunayTessellationFieldEstimator.jl/blob/master/resources/Example.ipynb.tar.gz)
-![beetle density](https://github.com/harveydevereux/MSc-Project/blob/master/Resources/density.gif)
+![density](https://github.com/harveydevereux/MSc-Project/blob/master/Resources/density.gif)
